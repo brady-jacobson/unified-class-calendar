@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.DS_Store
+data/
+browser-profile/
+output/
+work/
+/unified-class-calendar/
+/AGENTS.md
+/docs/
+/config/sources.toml
+
+# Local course evidence and downloaded instructional material. These may contain
+# student/course information and are not required to build or run the crawler.
+Screenshot*.png
+*.pdf
+syllabus*.html
+syllabus*.zip
+syllabus.html/
+syllabus_*_files/
