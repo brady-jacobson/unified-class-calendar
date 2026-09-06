@@ -6,6 +6,7 @@ from pathlib import Path
 from coursework_crawler.adapters.webwork import (
     canonicalize_webwork_url,
     parse_webwork_date,
+    parse_webwork_detail_dates,
     record_from_row,
 )
 from coursework_crawler.config import load_config
@@ -49,6 +50,24 @@ class WeBWorKParsingTests(unittest.TestCase):
             "https://webwork.example.invalid/webwork2/ExampleCourse2026/Homework_1.1?foo=bar",
             canonical,
         )
+
+    def test_future_detail_page_exposes_explicit_open_and_close(self) -> None:
+        values = parse_webwork_detail_dates(
+            "Set opens on September 7, 2026 at 12:00:00 AM CDT. "
+            "This assignment will close on September 15, 2026 at 11:59:00 PM CDT."
+        )
+        self.assertEqual(
+            "2026-09-07T00:00:00-05:00",
+            values["available_from"].isoformat(),
+        )
+        self.assertEqual("2026-09-15T23:59:00-05:00", values["due_at"].isoformat())
+        self.assertEqual("America/Chicago", values["timezone"])
+
+    def test_detail_parser_does_not_infer_missing_close(self) -> None:
+        values = parse_webwork_detail_dates(
+            "Set opens on September 7, 2026 at 12:00:00 AM CDT."
+        )
+        self.assertIsNone(values["due_at"])
 
 
 if __name__ == "__main__":

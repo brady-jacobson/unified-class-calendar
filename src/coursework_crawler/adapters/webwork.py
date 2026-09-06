@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
@@ -14,6 +15,12 @@ DATE_PATTERN = re.compile(
     r"(?P<label>Due|Will open on) "
     r"(?P<month>[A-Za-z]+) (?P<day>\d{1,2}), (?P<year>\d{4}) at "
     r"(?P<clock>\d{1,2}:\d{2}:\d{2} [AP]M) (?P<zone>[A-Z]{3,4})"
+)
+DETAIL_DATE_PATTERN = re.compile(
+    r"(?P<label>Set opens on|Set closes on|This assignment will close on) "
+    r"(?P<month>[A-Za-z]+) (?P<day>\d{1,2}), (?P<year>\d{4}) at "
+    r"(?P<clock>\d{1,2}:\d{2}:\d{2} [AP]M) (?P<zone>[A-Z]{3,4})",
+    re.I,
 )
 
 ZONE_NAMES = {
@@ -42,6 +49,37 @@ def parse_webwork_date(text: str) -> tuple[str, datetime, str] | None:
         "%B %d %Y %I:%M:%S %p",
     )
     return match.group("label"), naive.replace(tzinfo=ZoneInfo(zone_name)), zone_name
+
+
+def parse_webwork_detail_dates(text: str) -> dict[str, datetime | str | None]:
+    """Read explicit set-page open/close labels without inferring a cadence."""
+    values: dict[str, datetime | str | None] = {
+        "available_from": None,
+        "due_at": None,
+        "timezone": None,
+    }
+    normalized = " ".join(text.split())
+    for match in DETAIL_DATE_PATTERN.finditer(normalized):
+        zone_label = match.group("zone").upper()
+        zone_name = ZONE_NAMES.get(zone_label)
+        if zone_name is None:
+            raise ValueError(f"Unsupported WeBWorK timezone abbreviation: {zone_label}")
+        parsed = datetime.strptime(
+            " ".join(
+                [
+                    match.group("month"), match.group("day"), match.group("year"),
+                    match.group("clock"),
+                ]
+            ),
+            "%B %d %Y %I:%M:%S %p",
+        ).replace(tzinfo=ZoneInfo(zone_name))
+        label = match.group("label").lower()
+        if "opens" in label:
+            values["available_from"] = parsed
+        elif "close" in label:
+            values["due_at"] = parsed
+        values["timezone"] = zone_name
+    return values
 
 
 def canonicalize_webwork_url(base_url: str, href: str) -> str:
@@ -141,6 +179,63 @@ class WeBWorKAdapter(Adapter):
                 message=f"WeBWorK page structure or date parsing failed: {type(exc).__name__}: {exc}",
                 course_identity=heading,
             )
+
+        enriched: list[DeadlineRecord] = []
+        for record in records:
+            if record.due_at is not None:
+                enriched.append(record)
+                continue
+            try:
+                page.goto(record.details_url, wait_until="domcontentloaded", timeout=30_000)
+                detail_text = page.locator("body").inner_text(timeout=15_000)
+            except Exception as exc:
+                return CrawlResult(
+                    source,
+                    HealthStatus.UNAVAILABLE,
+                    message=(
+                        f"Could not load WeBWorK set detail for {record.title}: "
+                        f"{type(exc).__name__}"
+                    ),
+                    course_identity=heading,
+                )
+            if (
+                "Not logged in." in detail_text
+                or page.locator('input[name="user"], input[autocomplete="username"]').count() > 0
+                or "/login" in page.url.lower()
+            ):
+                return CrawlResult(
+                    source,
+                    HealthStatus.LOGIN_REQUIRED,
+                    message="WeBWorK login required while checking set details; prior records were retained.",
+                    course_identity=heading,
+                )
+            try:
+                detail_dates = parse_webwork_detail_dates(detail_text)
+            except Exception as exc:
+                return CrawlResult(
+                    source,
+                    HealthStatus.PARSER_FAILED,
+                    message=f"WeBWorK set-detail date parsing failed: {type(exc).__name__}: {exc}",
+                    course_identity=heading,
+                )
+            detail_labels = " | ".join(
+                match.group(0)
+                for match in DETAIL_DATE_PATTERN.finditer(" ".join(detail_text.split()))
+            )
+            enriched.append(
+                replace(
+                    record,
+                    available_from=(
+                        record.available_from or detail_dates["available_from"]  # type: ignore[arg-type]
+                    ),
+                    due_at=detail_dates["due_at"],  # type: ignore[arg-type]
+                    timezone=record.timezone or str(detail_dates["timezone"] or "") or None,
+                    raw_date_label=" | ".join(
+                        part for part in (record.raw_date_label, detail_labels) if part
+                    ),
+                )
+            )
+        records = tuple(enriched)
 
         health = HealthStatus.SUCCESS if records else HealthStatus.VERIFIED_ZERO
         return CrawlResult(
