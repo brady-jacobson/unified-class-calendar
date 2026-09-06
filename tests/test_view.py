@@ -152,6 +152,60 @@ class DashboardTests(unittest.TestCase):
             self.assertIn("Primary source:", document)
             self.assertIn("Explicit ambiguity", document)
 
+    def test_dashboard_preserves_unscheduled_work_late_deadlines_and_resource_links(self) -> None:
+        config = load_config(ROOT / "config" / "sources.example.toml")
+        source = next(source for source in config.sources if source.id == "math2420-webwork")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = Database(root / "db.sqlite3")
+            database.initialize()
+            database.sync_sources(config.sources)
+            database.sync_class_meetings(config.classes)
+            tz = ZoneInfo("America/Chicago")
+            records = (
+                DeadlineRecord(
+                    course_id=source.course_id,
+                    source_id=source.id,
+                    source_platform=source.platform,
+                    source_course_id=source.source_course_id,
+                    source_item_id="dated",
+                    title="Homework 9",
+                    details_url="https://example.test/homework",
+                    due_at=datetime(2099, 9, 9, 23, 59, tzinfo=tz),
+                    late_due_at=datetime(2099, 9, 10, 12, 0, tzinfo=tz),
+                    component_kind="written submission",
+                    related_links=(
+                        ("Prompt", "https://example.test/prompt"),
+                        ("FAQ", "https://example.test/faq"),
+                    ),
+                ),
+                DeadlineRecord(
+                    course_id=source.course_id,
+                    source_id=source.id,
+                    source_platform=source.platform,
+                    source_course_id=source.source_course_id,
+                    source_item_id="relative",
+                    title="Pre-lab demonstration",
+                    details_url="https://example.test/prelab",
+                    timing_text="At the start of the assigned lab section.",
+                ),
+            )
+            run_id = database.start_run()
+            database.record_result(
+                run_id, CrawlResult(source, HealthStatus.SUCCESS, records), 3
+            )
+            output = root / "index.html"
+            render_dashboard(database.path, output)
+            document = output.read_text(encoding="utf-8")
+            self.assertIn("Required without exact time", document)
+            self.assertIn("Pre-lab demonstration", document)
+            self.assertIn("At the start of the assigned lab section.", document)
+            self.assertIn('"lateDueAt":"2099-09-10T12:00:00-05:00"', document)
+            self.assertIn('"source":"Prompt"', document)
+            self.assertIn('"source":"FAQ"', document)
+            self.assertIn("Late deadline:", document)
+            self.assertIn("Component:", document)
+
 
 if __name__ == "__main__":
     unittest.main()

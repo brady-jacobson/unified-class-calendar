@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -69,6 +70,11 @@ CREATE TABLE IF NOT EXISTS items (
     timezone TEXT,
     item_status TEXT,
     raw_date_label TEXT,
+    timing_text TEXT,
+    description TEXT,
+    canonical_key TEXT,
+    component_kind TEXT,
+    related_links TEXT NOT NULL DEFAULT '[]',
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
     last_verified_at TEXT NOT NULL,
@@ -90,7 +96,12 @@ CREATE TABLE IF NOT EXISTS item_observations (
     late_due_at TEXT,
     timezone TEXT,
     item_status TEXT,
-    raw_date_label TEXT
+    raw_date_label TEXT,
+    timing_text TEXT,
+    description TEXT,
+    canonical_key TEXT,
+    component_kind TEXT,
+    related_links TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS deadline_changes (
@@ -224,12 +235,23 @@ class Database:
 
     @staticmethod
     def _migrate(connection: sqlite3.Connection) -> None:
+        item_columns = {
+            "available_until": "TEXT",
+            "timing_text": "TEXT",
+            "description": "TEXT",
+            "canonical_key": "TEXT",
+            "component_kind": "TEXT",
+            "related_links": "TEXT NOT NULL DEFAULT '[]'",
+        }
         for table in ("items", "item_observations"):
             columns = {
                 row["name"] for row in connection.execute(f"PRAGMA table_info({table})")
             }
-            if "available_until" not in columns:
-                connection.execute(f"ALTER TABLE {table} ADD COLUMN available_until TEXT")
+            for column, definition in item_columns.items():
+                if column not in columns:
+                    connection.execute(
+                        f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                    )
         calendar_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(calendar_events)")
         }
@@ -582,6 +604,11 @@ class Database:
             "timezone": record.timezone,
             "item_status": record.status,
             "raw_date_label": record.raw_date_label,
+            "timing_text": record.timing_text,
+            "description": record.description,
+            "canonical_key": record.canonical_key,
+            "component_kind": record.component_kind,
+            "related_links": json.dumps(record.related_links, ensure_ascii=False),
         }
 
         if current is None:
@@ -591,8 +618,10 @@ class Database:
                     source_id, source_item_id, course_id, source_platform,
                     source_course_id, title, details_url, available_from,
                     due_at, available_until, late_due_at, timezone, item_status,
-                    raw_date_label, first_seen_at, last_seen_at, last_verified_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    raw_date_label, timing_text, description, canonical_key,
+                    component_kind, related_links, first_seen_at, last_seen_at,
+                    last_verified_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.source_id, record.source_item_id, record.course_id,
@@ -600,13 +629,18 @@ class Database:
                     values["title"], values["details_url"], values["available_from"],
                     values["due_at"], values["available_until"], values["late_due_at"],
                     values["timezone"], values["item_status"], values["raw_date_label"],
+                    values["timing_text"], values["description"], values["canonical_key"],
+                    values["component_kind"], values["related_links"],
                     observed_at, observed_at, observed_at,
                 ),
             )
             item_id = int(cursor.lastrowid)
         else:
             item_id = int(current["id"])
-            for field in ("available_from", "due_at", "available_until", "late_due_at"):
+            for field in (
+                "available_from", "due_at", "available_until", "late_due_at",
+                "timing_text",
+            ):
                 if current[field] != values[field]:
                     connection.execute(
                         """
@@ -620,14 +654,17 @@ class Database:
                 """
                 UPDATE items SET
                     title=?, details_url=?, available_from=?, due_at=?, available_until=?,
-                    late_due_at=?, timezone=?, item_status=?, raw_date_label=?, last_seen_at=?,
-                    last_verified_at=?, consecutive_missing=0, active=1
+                    late_due_at=?, timezone=?, item_status=?, raw_date_label=?, timing_text=?,
+                    description=?, canonical_key=?, component_kind=?, related_links=?,
+                    last_seen_at=?, last_verified_at=?, consecutive_missing=0, active=1
                 WHERE id=?
                 """,
                 (
                     values["title"], values["details_url"], values["available_from"],
                     values["due_at"], values["available_until"], values["late_due_at"],
                     values["timezone"], values["item_status"], values["raw_date_label"],
+                    values["timing_text"], values["description"], values["canonical_key"],
+                    values["component_kind"], values["related_links"],
                     observed_at, observed_at, item_id,
                 ),
             )
@@ -636,13 +673,15 @@ class Database:
             """
             INSERT INTO item_observations(
                 run_id, item_id, observed_at, title, details_url, available_from,
-                due_at, available_until, late_due_at, timezone, item_status, raw_date_label
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                due_at, available_until, late_due_at, timezone, item_status, raw_date_label,
+                timing_text, description, canonical_key, component_kind, related_links
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id, item_id, observed_at, values["title"], values["details_url"],
                 values["available_from"], values["due_at"], values["available_until"],
                 values["late_due_at"], values["timezone"], values["item_status"],
-                values["raw_date_label"],
+                values["raw_date_label"], values["timing_text"], values["description"],
+                values["canonical_key"], values["component_kind"], values["related_links"],
             ),
         )

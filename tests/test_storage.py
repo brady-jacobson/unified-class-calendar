@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 import tempfile
 import unittest
 from datetime import datetime
@@ -199,6 +200,44 @@ class StorageTests(unittest.TestCase):
             finally:
                 connection.close()
             self.assertEqual(0, missing)
+
+    def test_obligation_metadata_and_resource_links_are_preserved(self) -> None:
+        config = load_config(ROOT / "config" / "sources.example.toml")
+        source = next(source for source in config.sources if source.id == "math2420-webwork")
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Database(Path(temporary) / "test.sqlite3")
+            database.initialize()
+            database.sync_sources(config.sources)
+            record = DeadlineRecord(
+                course_id=source.course_id,
+                source_id=source.id,
+                source_platform=source.platform,
+                source_course_id=source.source_course_id,
+                source_item_id="relative",
+                title="Required setup",
+                details_url="https://example.test/setup",
+                timing_text="Before the next class meeting.",
+                description="Install the required tools.",
+                canonical_key="todo:required-setup",
+                component_kind="preparation",
+                related_links=(("Instructions", "https://example.test/instructions"),),
+            )
+            run_id = database.start_run()
+            database.record_result(
+                run_id, CrawlResult(source, HealthStatus.SUCCESS, (record,)), 3
+            )
+            with database.connect() as connection:
+                row = connection.execute("SELECT * FROM items").fetchone()
+                observation = connection.execute(
+                    "SELECT * FROM item_observations"
+                ).fetchone()
+            self.assertEqual("Before the next class meeting.", row["timing_text"])
+            self.assertEqual("todo:required-setup", row["canonical_key"])
+            self.assertEqual(
+                [["Instructions", "https://example.test/instructions"]],
+                json.loads(row["related_links"]),
+            )
+            self.assertEqual("preparation", observation["component_kind"])
 
 
 if __name__ == "__main__":

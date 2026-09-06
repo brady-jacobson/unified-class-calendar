@@ -62,6 +62,11 @@ class DeadlineRecord:
     timezone: str | None = None
     status: str | None = None
     raw_date_label: str | None = None
+    timing_text: str | None = None
+    description: str | None = None
+    canonical_key: str | None = None
+    component_kind: str | None = None
+    related_links: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

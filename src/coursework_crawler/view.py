@@ -89,6 +89,32 @@ def _coursework_events(
     class_rows: list[sqlite3.Row],
     codes: dict[str, str],
 ) -> list[dict[str, object]]:
+    def related_links(row: sqlite3.Row) -> list[dict[str, str]]:
+        try:
+            values = json.loads(row["related_links"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            return []
+        return [
+            {"source": str(label), "url": str(url), "kind": "resource"}
+            for label, url in values
+            if label and url
+        ]
+
+    def source_rank(event: dict[str, object]) -> int:
+        source = str(event.get("source", "")).lower()
+        adapter = str(event.get("sourceAdapter", "")).lower()
+        if source == "gradescope" or adapter == "gradescope":
+            return 0
+        if source in {"webwork", "zybooks"} or adapter in {"webwork", "zybooks"}:
+            return 1
+        if adapter == "brightspace_assignments":
+            return 2
+        if adapter in {"brightspace_quizzes", "brightspace_content"}:
+            return 3
+        if source == "course schedule":
+            return 4
+        return 5
+
     def moment_key(event: dict[str, object]) -> tuple[str, str]:
         start = datetime.fromisoformat(str(event["start"]))
         end = datetime.fromisoformat(str(event["end"]))
@@ -142,6 +168,7 @@ def _coursework_events(
                     if row["source_adapter"] == "brightspace_schedule"
                     else "Brightspace calendar"
                 ),
+                "sourceAdapter": row["source_adapter"],
                 "provenance": [{
                     "source": (
                         "Course schedule"
@@ -149,6 +176,7 @@ def _coursework_events(
                         else "Brightspace calendar"
                     ),
                     "url": row["details_url"],
+                    "kind": "source",
                 }],
             }
         )
@@ -168,14 +196,27 @@ def _coursework_events(
                 "end": due_at.isoformat(),
                 "allDay": False,
                 "kind": kind,
-                "canonicalKey": canonical_event_key(row["title"], kind),
+                "canonicalKey": row["canonical_key"] or canonical_event_key(row["title"], kind),
                 "location": "",
                 "url": row["details_url"],
                 "source": row["source_platform"],
+                "sourceAdapter": row["source_adapter"],
+                "description": row["description"] or "",
+                "timingText": row["timing_text"] or "",
+                "availableFrom": row["available_from"] or "",
+                "availableUntil": row["available_until"] or "",
+                "lateDueAt": row["late_due_at"] or "",
+                "componentKind": row["component_kind"] or "",
                 "provenance": [{
                     "source": row["source_platform"],
                     "url": row["details_url"],
-                }],
+                    "kind": "source",
+                    "dueAt": row["due_at"] or "",
+                    "lateDueAt": row["late_due_at"] or "",
+                    "availableFrom": row["available_from"] or "",
+                    "availableUntil": row["available_until"] or "",
+                    "componentKind": row["component_kind"] or "",
+                }, *related_links(row)],
             }
         )
 
@@ -212,17 +253,23 @@ def _coursework_events(
             if item not in provenance:
                 provenance.append(item)
         current["source"] = " + ".join(dict.fromkeys(
-            str(item["source"]) for item in provenance
+            str(item["source"]) for item in provenance if item.get("kind") != "resource"
         ))
         prefer_schedule = event["source"] == "Course schedule"
         keep_multiday_break = str(current.get("canonicalKey", "")).startswith("break:") and current["allDay"]
-        if prefer_schedule and not keep_multiday_break:
+        prefer_primary = source_rank(event) < source_rank(current)
+        if (prefer_schedule and not keep_multiday_break) or prefer_primary:
             current["title"] = event["title"]
             current["url"] = event["url"]
-            current["kind"] = event["kind"]
-            current["start"] = event["start"]
-            current["end"] = event["end"]
-            current["allDay"] = event["allDay"]
+            current["sourceAdapter"] = event.get("sourceAdapter", "")
+            if prefer_schedule and not keep_multiday_break:
+                current["kind"] = event["kind"]
+                current["start"] = event["start"]
+                current["end"] = event["end"]
+                current["allDay"] = event["allDay"]
+        for field in ("description", "timingText", "availableFrom", "availableUntil", "lateDueAt", "componentKind"):
+            if not current.get(field) and event.get(field):
+                current[field] = event[field]
 
     strong_prefixes = ("exam:", "due:", "break:", "term:", "course:", "quiz:", "tips:")
     by_identity: dict[tuple[str, str], list[dict[str, object]]] = {}
@@ -255,10 +302,18 @@ def render_dashboard(database_path: Path, output_path: Path) -> None:
     try:
         deadline_rows = connection.execute(
             """
-            SELECT i.*, s.course_name
+            SELECT i.*, s.course_name, s.adapter AS source_adapter
             FROM items i JOIN sources s ON s.id=i.source_id
             WHERE i.active=1 AND i.due_at IS NOT NULL
             ORDER BY i.due_at ASC
+            """
+        ).fetchall()
+        unscheduled = connection.execute(
+            """
+            SELECT i.*, s.course_name
+            FROM items i JOIN sources s ON s.id=i.source_id
+            WHERE i.active=1 AND i.due_at IS NULL AND i.timing_text IS NOT NULL
+            ORDER BY s.course_name, i.title
             """
         ).fetchall()
         calendar_rows = connection.execute(
@@ -353,6 +408,13 @@ def render_dashboard(database_path: Path, output_path: Path) -> None:
             f'<small>{html.escape(str(event.get("conflictMessage", "Explicit sources disagree.")))}</small></a>'
         )
     issue_rows = "".join(issue_parts) or '<p class="empty compact">No unresolved source ambiguities.</p>'
+    unscheduled_rows = "".join(
+        f'<a class="notice unscheduled" href="{html.escape(row["details_url"])}" target="_blank" rel="noopener">'
+        f'<strong>{html.escape(row["course_name"])} · Required, no exact due time</strong>'
+        f'<span>{html.escape(row["title"])}</span>'
+        f'<small>{html.escape(row["timing_text"])}</small></a>'
+        for row in unscheduled
+    ) or '<p class="empty compact">No unscheduled required work.</p>'
     change_labels = {
         "added": "Added",
         "starts_at": "Date/time changed",
@@ -388,7 +450,7 @@ def render_dashboard(database_path: Path, output_path: Path) -> None:
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
-        _document(payload, generated, health_rows, issue_rows, change_rows),
+        _document(payload, generated, health_rows, issue_rows, unscheduled_rows, change_rows),
         encoding="utf-8",
     )
 
@@ -398,6 +460,7 @@ def _document(
     generated: str,
     health_rows: str,
     issue_rows: str,
+    unscheduled_rows: str,
     change_rows: str,
 ) -> str:
     return f'''<!doctype html>
@@ -420,7 +483,7 @@ def _document(
 </style></head><body>
 <header class="app-header"><div class="brand"><div class="brand-mark">V</div><div><h1>Vanderbilt Calendar</h1><p>Classes + Coursework</p></div></div><div class="toolbar"><button id="prev" aria-label="Previous period">←</button><button id="today">Today</button><button id="next" aria-label="Next period">→</button><div class="period" id="period"></div><div class="seg" aria-label="Calendar view"><button id="weekBtn" class="active">Week</button><button id="twoDayBtn">2 Day</button><button id="monthBtn">Month</button></div></div></header>
 <div class="layout"><main class="main"><div class="filters"><label class="filter"><input id="classesToggle" type="checkbox" checked><span class="dot classes-dot"></span>Classes</label><label class="filter"><input id="courseworkToggle" type="checkbox" checked><span class="dot coursework-dot"></span>Coursework</label></div><div class="calendar-wrap" id="calendar"></div></main>
-<aside class="sidebar"><h2>Coming up</h2><div class="upcoming" id="upcoming"></div><details open><summary>Schedule ambiguities</summary>{issue_rows}</details><details><summary>Recent schedule changes</summary>{change_rows}</details><details><summary>Source health</summary><table class="health-table"><tbody>{health_rows}</tbody></table></details><p class="updated">Updated {html.escape(generated)}<br>Refresh this page after the morning update to see the latest data.</p></aside></div>
+<aside class="sidebar"><h2>Coming up</h2><div class="upcoming" id="upcoming"></div><details open><summary>Required without exact time</summary>{unscheduled_rows}</details><details open><summary>Schedule ambiguities</summary>{issue_rows}</details><details><summary>Recent schedule changes</summary>{change_rows}</details><details><summary>Source health</summary><table class="health-table"><tbody>{health_rows}</tbody></table></details><p class="updated">Updated {html.escape(generated)}<br>Refresh this page after the morning update to see the latest data.</p></aside></div>
 <section class="event-popover" id="eventPopover" role="dialog" aria-labelledby="popoverTitle" hidden><button class="popover-close" id="popoverClose" type="button" aria-label="Close event details">×</button><div id="popoverContent"></div></section>
 <script>const ALL_EVENTS={payload};
 const $=id=>document.getElementById(id);let cursor=new Date();let mode='week';const state={{classes:true,coursework:true}};
@@ -432,10 +495,10 @@ function renderTimeView(firstDay,count,viewClass){{const days=Array.from({{lengt
 const renderWeek=()=>renderTimeView(weekStart(cursor),7,'week');const renderTwoDay=()=>renderTimeView(startDay(cursor),2,'two-day');
 function renderMonth(){{const first=new Date(cursor.getFullYear(),cursor.getMonth(),1),gridStart=weekStart(first),now=new Date();$('period').textContent=first.toLocaleDateString([],{{month:'long',year:'numeric'}});const headers=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(x=>`<div class="month-weekday">${{x}}</div>`).join('');const cells=Array.from({{length:42}},(_,i)=>{{const d=addDays(gridStart,i),ev=filtered().filter(e=>eventOccursOn(e,d)).sort((a,b)=>a.start.localeCompare(b.start)),shown=ev.slice(0,4);return `<div class="month-day ${{d.getMonth()!==cursor.getMonth()?'outside':''}}"><div class="month-number ${{sameDay(d,now)?'today':''}}">${{d.getDate()}}</div><div class="month-events">${{shown.map(e=>eventCard(e,'month-event')).join('')}}${{ev.length>4?`<div class="more">+${{ev.length-4}} more</div>`:''}}</div></div>`}}).join('');$('calendar').innerHTML=`<div class="month">${{headers}}${{cells}}</div>`}}
 function renderUpcoming(){{const now=new Date(),until=addDays(now,14),ev=filtered().filter(e=>eventDate(e)>=startDay(now)&&eventDate(e)<until).sort((a,b)=>a.start.localeCompare(b.start)).slice(0,14);$('upcoming').innerHTML=ev.length?ev.map(e=>{{const d=eventDate(e);return `<button type="button" data-event-id="${{escapeHtml(e.id)}}" class="upcoming-item"><span class="date-box">${{d.toLocaleDateString([],{{weekday:'short'}})}}<strong>${{d.getDate()}}</strong></span><span><span class="upcoming-title">${{escapeHtml(e.courseCode)}} · ${{escapeHtml(e.title)}}</span><span class="upcoming-meta">${{e.allDay?'All day':fmtTime(d)}} · ${{e.calendar==='classes'?'Class':sourceName(e.source)}}</span></span></button>`}}).join(''):'<div class="empty">Nothing scheduled in the next two weeks.</div>'}}
-const formatEventTime=e=>{{const start=new Date(e.start),end=new Date(e.end),dateOptions={{weekday:'long',month:'long',day:'numeric',year:'numeric'}};if(e.allDay){{const final=addDays(startDay(end),-1);return sameDay(start,final)?`${{start.toLocaleDateString([],dateOptions)}} · All day`:`${{start.toLocaleDateString([],{{month:'long',day:'numeric'}})}} – ${{final.toLocaleDateString([],dateOptions)}} · All day`}}const date=start.toLocaleDateString([],dateOptions);return end>start?`${{date}} · ${{fmtTime(start)}} – ${{fmtTime(end)}}`:`${{date}} · ${{fmtTime(start)}}`}};
+const formatEventTime=e=>{{const start=new Date(e.start),end=new Date(e.end),dateOptions={{weekday:'long',month:'long',day:'numeric',year:'numeric'}};if(e.allDay){{const final=addDays(startDay(end),-1);return sameDay(start,final)?`${{start.toLocaleDateString([],dateOptions)}} · All day`:`${{start.toLocaleDateString([],{{month:'long',day:'numeric'}})}} – ${{final.toLocaleDateString([],dateOptions)}} · All day`}}const date=start.toLocaleDateString([],dateOptions);return end>start?`${{date}} · ${{fmtTime(start)}} – ${{fmtTime(end)}}`:`${{date}} · ${{fmtTime(start)}}`}};const fmtDateTime=value=>value?new Date(value).toLocaleString([],{{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}}):'';
 function eventSources(e){{const seen=new Set(),links=[];const add=(url,source,primary=false)=>{{if(!url||seen.has(url))return;seen.add(url);links.push({{url,source:sourceName(source),primary}})}};const primarySource=e.provenance?.find(p=>p.url===e.url)?.source||e.source;add(e.url,primarySource,true);for(const item of e.provenance||[])add(item.url,item.source,false);return links}}
 let lastEventTrigger=null;function positionPopover(anchor){{if(innerWidth<=650)return;const pop=$('eventPopover'),rect=anchor.getBoundingClientRect(),gap=10,width=pop.offsetWidth,height=pop.offsetHeight;let left=Math.min(rect.left,innerWidth-width-12),top=rect.bottom+gap;if(top+height>innerHeight-12)top=Math.max(12,rect.top-height-gap);pop.style.left=`${{Math.max(12,left)}}px`;pop.style.top=`${{top}}px`;pop.style.right='auto';pop.style.bottom='auto'}}
-function openEventDetails(id,anchor){{const e=ALL_EVENTS.find(item=>item.id===id);if(!e)return;lastEventTrigger=anchor;const links=eventSources(e),primary=links.find(item=>item.primary),others=links.filter(item=>!item.primary),sourceSummary=[...new Set((e.provenance?.length?e.provenance:[{{source:e.source}}]).map(item=>sourceName(item.source)))].join(', '),action=e.kind==='due'?'Open assignment details':e.kind==='exam'?'Open exam details':'Open event details';$('popoverContent').innerHTML=`<div class="popover-kicker"><span class="dot ${{e.calendar==='classes'?'classes-dot':'coursework-dot'}}"></span>${{escapeHtml(e.calendar==='classes'?'Classes':'Coursework')}} · ${{escapeHtml(kindName(e.kind))}}</div><h2 id="popoverTitle">${{escapeHtml(e.title)}}</h2><p class="popover-course">${{escapeHtml(e.courseCode)}}</p><div class="popover-details"><div class="detail-row"><span class="detail-icon" aria-hidden="true">◷</span><span>${{escapeHtml(formatEventTime(e))}}</span></div>${{e.location?`<div class="detail-row"><span class="detail-icon" aria-hidden="true">⌖</span><span>${{escapeHtml(e.location)}}</span></div>`:''}}<div class="detail-row"><span class="detail-icon" aria-hidden="true">↗</span><span>${{escapeHtml(sourceSummary)}}</span></div></div>${{e.conflictMessage?`<div class="conflict-note">${{escapeHtml(e.conflictMessage)}}</div>`:''}}${{primary?`<a class="primary-action" href="${{escapeHtml(primary.url)}}" target="_blank" rel="noopener">${{action}}</a><small class="source-caption">Primary source: ${{escapeHtml(primary.source)}}</small>`:`<p class="source-only">Source: ${{escapeHtml(sourceName(e.source))}}</p>`}}${{others.length?`<div class="other-sources"><h3>Other sources</h3>${{others.map(item=>`<a class="source-link" href="${{escapeHtml(item.url)}}" target="_blank" rel="noopener"><span>Open ${{escapeHtml(item.source)}}</span><span aria-hidden="true">↗</span></a>`).join('')}}</div>`:''}}`;$('eventPopover').hidden=false;positionPopover(anchor);$('popoverClose').focus()}}
+function openEventDetails(id,anchor){{const e=ALL_EVENTS.find(item=>item.id===id);if(!e)return;lastEventTrigger=anchor;const links=eventSources(e),primary=links.find(item=>item.primary),others=links.filter(item=>!item.primary),sourceSummary=[...new Set((e.provenance?.length?e.provenance:[{{source:e.source}}]).filter(item=>item.kind!=='resource').map(item=>sourceName(item.source)))].join(', '),action=e.kind==='due'?'Open assignment details':e.kind==='exam'?'Open exam details':'Open event details';const extra=`${{e.lateDueAt?`<div class="detail-row"><span class="detail-icon" aria-hidden="true">↳</span><span>Late deadline: ${{escapeHtml(fmtDateTime(e.lateDueAt))}}</span></div>`:''}}${{e.availableFrom?`<div class="detail-row"><span class="detail-icon" aria-hidden="true">◴</span><span>Available: ${{escapeHtml(fmtDateTime(e.availableFrom))}}</span></div>`:''}}${{e.availableUntil?`<div class="detail-row"><span class="detail-icon" aria-hidden="true">◵</span><span>Availability ends: ${{escapeHtml(fmtDateTime(e.availableUntil))}}</span></div>`:''}}${{e.timingText?`<div class="detail-row"><span class="detail-icon" aria-hidden="true">≋</span><span>${{escapeHtml(e.timingText)}}</span></div>`:''}}${{e.componentKind?`<div class="detail-row"><span class="detail-icon" aria-hidden="true">◇</span><span>Component: ${{escapeHtml(e.componentKind)}}</span></div>`:''}}${{e.description?`<div class="detail-row"><span class="detail-icon" aria-hidden="true">i</span><span>${{escapeHtml(e.description)}}</span></div>`:''}}`;$('popoverContent').innerHTML=`<div class="popover-kicker"><span class="dot ${{e.calendar==='classes'?'classes-dot':'coursework-dot'}}"></span>${{escapeHtml(e.calendar==='classes'?'Classes':'Coursework')}} · ${{escapeHtml(kindName(e.kind))}}</div><h2 id="popoverTitle">${{escapeHtml(e.title)}}</h2><p class="popover-course">${{escapeHtml(e.courseCode)}}</p><div class="popover-details"><div class="detail-row"><span class="detail-icon" aria-hidden="true">◷</span><span>${{escapeHtml(formatEventTime(e))}}</span></div>${{e.location?`<div class="detail-row"><span class="detail-icon" aria-hidden="true">⌖</span><span>${{escapeHtml(e.location)}}</span></div>`:''}}${{extra}}<div class="detail-row"><span class="detail-icon" aria-hidden="true">↗</span><span>${{escapeHtml(sourceSummary)}}</span></div></div>${{e.conflictMessage?`<div class="conflict-note">${{escapeHtml(e.conflictMessage)}}</div>`:''}}${{primary?`<a class="primary-action" href="${{escapeHtml(primary.url)}}" target="_blank" rel="noopener">${{action}}</a><small class="source-caption">Primary source: ${{escapeHtml(primary.source)}}</small>`:`<p class="source-only">Source: ${{escapeHtml(sourceName(e.source))}}</p>`}}${{others.length?`<div class="other-sources"><h3>Other sources</h3>${{others.map(item=>`<a class="source-link" href="${{escapeHtml(item.url)}}" target="_blank" rel="noopener"><span>Open ${{escapeHtml(item.source)}}</span><span aria-hidden="true">↗</span></a>`).join('')}}</div>`:''}}`;$('eventPopover').hidden=false;positionPopover(anchor);$('popoverClose').focus()}}
 function closeEventDetails(){{$('eventPopover').hidden=true;$('eventPopover').removeAttribute('style');const trigger=lastEventTrigger;lastEventTrigger=null;if(trigger?.isConnected)trigger.focus()}}
 function render(){{closeEventDetails();mode==='week'?renderWeek():mode==='two'?renderTwoDay():renderMonth();renderUpcoming();$('weekBtn').classList.toggle('active',mode==='week');$('twoDayBtn').classList.toggle('active',mode==='two');$('monthBtn').classList.toggle('active',mode==='month')}}
 $('prev').onclick=()=>{{cursor=mode==='week'?addDays(cursor,-7):mode==='two'?addDays(cursor,-1):new Date(cursor.getFullYear(),cursor.getMonth()-1,1);render()}};$('next').onclick=()=>{{cursor=mode==='week'?addDays(cursor,7):mode==='two'?addDays(cursor,1):new Date(cursor.getFullYear(),cursor.getMonth()+1,1);render()}};$('today').onclick=()=>{{cursor=new Date();render()}};$('weekBtn').onclick=()=>{{mode='week';render()}};$('twoDayBtn').onclick=()=>{{mode='two';render()}};$('monthBtn').onclick=()=>{{mode='month';render()}};$('classesToggle').onchange=e=>{{state.classes=e.target.checked;render()}};$('courseworkToggle').onchange=e=>{{state.coursework=e.target.checked;render()}};$('popoverClose').onclick=closeEventDetails;document.addEventListener('click',event=>{{const trigger=event.target.closest('[data-event-id]');if(trigger){{openEventDetails(trigger.dataset.eventId,trigger);return}}if(!$('eventPopover').hidden&&!$('eventPopover').contains(event.target))closeEventDetails()}});document.addEventListener('keydown',event=>{{if(event.key==='Escape'&&!$('eventPopover').hidden)closeEventDetails()}});addEventListener('resize',()=>{{if(!$('eventPopover').hidden&&lastEventTrigger)positionPopover(lastEventTrigger)}});render();
