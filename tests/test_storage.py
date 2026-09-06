@@ -26,7 +26,8 @@ class StorageTests(unittest.TestCase):
     def test_source_configuration_loads_all_known_and_pending_sources(self) -> None:
         config = load_config(ROOT / "config" / "sources.example.toml")
         self.assertIn("math2420-webwork", {source.id for source in config.sources})
-        self.assertIn("cs2281-gradescope-pending", {source.id for source in config.sources})
+        self.assertIn("cs2281-gradescope", {source.id for source in config.sources})
+        self.assertIn("cs2281l-brightspace-assignments", {source.id for source in config.sources})
         self.assertEqual("example-term", config.term)
         self.assertEqual(6, len(config.classes))
         cs2281 = next(meeting for meeting in config.classes if meeting.course_id == "cs2281")

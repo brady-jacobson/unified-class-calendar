@@ -336,6 +336,42 @@ def parse_cs3250_calendar(
     return tuple(events.values())
 
 
+def parse_cs3265_exam_dates(
+    html: str,
+    source: SourceConfig,
+    meeting: ClassMeeting,
+) -> tuple[CalendarEventRecord, ...]:
+    """Parse only explicitly listed tentative exams/quizzes at class time."""
+    text = _plain_text(html)
+    year = int(source.options.get("term_year", 2026))
+    events: dict[str, CalendarEventRecord] = {}
+    pattern = re.compile(
+        r"\b(?P<kind>Exam|Quiz)\s*#?\s*(?P<number>\d+)\s*"
+        r"(?:[:\-]|is\s+on)?\s*"
+        r"(?P<date>(?:January|February|March|April|May|June|July|August|"
+        r"September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?)",
+        re.I,
+    )
+    for match in pattern.finditer(text):
+        label = match.group("kind").title()
+        number = match.group("number")
+        raw_date = re.sub(r"(?:st|nd|rd|th)$", "", match.group("date"), flags=re.I)
+        parsed_date = datetime.strptime(f"{raw_date} {year}", "%B %d %Y").date()
+        kind = "exam" if label == "Exam" else "quiz"
+        canonical = canonical_event_key(f"{label} {number}", kind)
+        events[canonical] = _event(
+            source,
+            meeting,
+            canonical,
+            f"{label} {number} (tentative)",
+            parsed_date,
+            kind,
+            f"Tentative: {match.group('date')} {year}; finalized in class",
+            canonical_key=canonical,
+        )
+    return tuple(events.values())
+
+
 class BrightspaceScheduleAdapter(Adapter):
     def __init__(self, meetings: tuple[ClassMeeting, ...] = ()):
         self.meetings = {meeting.course_id: meeting for meeting in meetings}
@@ -367,6 +403,12 @@ class BrightspaceScheduleAdapter(Adapter):
                 if not response.ok:
                     raise RuntimeError(f"course calendar returned {response.status}")
                 events = parse_cs3250_calendar(response.text(), source, meeting)
+                issues = ()
+            elif schedule_format == "cs3265_exam_dates":
+                module = self._json(page, source, f"content/modules/{source.options['module_id']}")
+                events = parse_cs3265_exam_dates(
+                    module["Description"]["Html"], source, meeting
+                )
                 issues = ()
             elif schedule_format == "cs2281_lectures":
                 module = self._json(page, source, f"content/modules/{source.options['module_id']}")

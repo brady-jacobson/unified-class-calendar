@@ -107,6 +107,15 @@ name = "Example Course B"
 status = "active"
 
   [[courses.sources]]
+  id = "math3320-homework-content"
+  adapter = "brightspace_content_tree"
+  platform = "brightspace"
+  source_course_id = "100002"
+  url = "https://lms.example.invalid/content/units/300102"
+  module_id = "300102"
+  enabled = true
+
+  [[courses.sources]]
   id = "math3320-gradescope"
   adapter = "gradescope"
   platform = "gradescope"
@@ -132,12 +141,29 @@ status = "active"
   platform = "brightspace"
   source_course_id = "100002"
   url = "https://lms.example.invalid/course-b/announcements"
-  enabled = false
+  enabled = true
 
 [[courses]]
 id = "math2420"
 name = "Example Course A"
 status = "active"
+
+  [[courses.sources]]
+  id = "math2420-brightspace-announcements"
+  adapter = "brightspace_announcements"
+  platform = "brightspace"
+  source_course_id = "100001"
+  url = "https://lms.example.invalid/math2420/announcements"
+  enabled = true
+
+  [[courses.sources]]
+  id = "math2420-written-homework"
+  adapter = "brightspace_content_tree"
+  platform = "brightspace"
+  source_course_id = "100001"
+  url = "https://lms.example.invalid/content/units/300101"
+  module_id = "300101"
+  enabled = true
 
   [[courses.sources]]
   id = "math2420-webwork"
@@ -171,6 +197,23 @@ status = "active"
 id = "cs3250"
 name = "Example Course C"
 status = "active"
+
+  [[courses.sources]]
+  id = "cs3250-brightspace-announcements"
+  adapter = "brightspace_announcements"
+  platform = "brightspace"
+  source_course_id = "100003"
+  url = "https://lms.example.invalid/cs3250/announcements"
+  enabled = true
+
+  [[courses.sources]]
+  id = "cs3250-homework-content"
+  adapter = "brightspace_content_tree"
+  platform = "brightspace"
+  source_course_id = "100003"
+  url = "https://lms.example.invalid/content/units/300103"
+  module_id = "300103"
+  enabled = true
 
   [[courses.sources]]
   id = "cs3250-gradescope"
@@ -213,6 +256,14 @@ status = "active"
 id = "cs2281"
 name = "Example Course D"
 status = "active"
+
+  [[courses.sources]]
+  id = "cs2281-brightspace-announcements"
+  adapter = "brightspace_announcements"
+  platform = "brightspace"
+  source_course_id = "100004"
+  url = "https://lms.example.invalid/cs2281/announcements"
+  enabled = true
 
   [[courses.sources]]
   id = "cs2281-schedule-unit"
@@ -279,13 +330,12 @@ status = "active"
   enabled = true
 
   [[courses.sources]]
-  id = "cs2281-gradescope-pending"
-  adapter = "gradescope_discovery"
+  id = "cs2281-gradescope"
+  adapter = "gradescope"
   platform = "gradescope"
-  source_course_id = "pending"
-  url = "https://gradescope.example.invalid/"
-  enabled = false
-  status = "pending-course-appearance"
+  source_course_id = "200004"
+  url = "https://gradescope.example.invalid/courses/200004"
+  enabled = true
 
   [[courses.sources]]
   id = "cs2281-tophat"
@@ -300,6 +350,14 @@ status = "active"
 id = "cs3265"
 name = "Example Course E"
 status = "active"
+
+  [[courses.sources]]
+  id = "cs3265-brightspace-announcements"
+  adapter = "brightspace_announcements"
+  platform = "brightspace"
+  source_course_id = "100005"
+  url = "https://lms.example.invalid/cs3265/announcements"
+  enabled = true
 
   [[courses.sources]]
   id = "cs3265-brightspace-assignments"
@@ -317,8 +375,55 @@ status = "active"
   url = "https://lms.example.invalid/course-e/quizzes"
   enabled = true
 
+  [[courses.sources]]
+  id = "cs3265-exam-dates"
+  adapter = "brightspace_schedule"
+  platform = "brightspace"
+  source_course_id = "100005"
+  url = "https://lms.example.invalid/course-e/exam-dates"
+  enabled = true
+  schedule_format = "cs3265_exam_dates"
+  module_id = "300006"
+  term_year = 2026
+  missing_runs_before_inactive = 1
+
+  [[courses.sources]]
+  id = "cs3265-software-setup"
+  adapter = "brightspace_content_tree"
+  platform = "brightspace"
+  source_course_id = "100005"
+  url = "https://lms.example.invalid/course-e/software-setup"
+  module_id = "300105"
+  enabled = true
+  inspect_details = true
+
 [[courses]]
 id = "cs2281l"
 name = "Example Course D Laboratory"
-status = "pending-course-appearance"
-sources = []
+status = "active"
+
+  [[courses.sources]]
+  id = "cs2281l-brightspace-announcements"
+  adapter = "brightspace_announcements"
+  platform = "brightspace"
+  source_course_id = "100006"
+  url = "https://lms.example.invalid/cs2281l/announcements"
+  enabled = true
+
+  [[courses.sources]]
+  id = "cs2281l-brightspace-assignments"
+  adapter = "brightspace_assignments"
+  platform = "brightspace"
+  source_course_id = "100006"
+  url = "https://lms.example.invalid/course-d-lab/assignments"
+  enabled = true
+  inspect_details = true
+  split_relational_obligations = true
+
+  [[courses.sources]]
+  id = "cs2281l-brightspace-quizzes"
+  adapter = "brightspace_quizzes"
+  platform = "brightspace"
+  source_course_id = "100006"
+  url = "https://lms.example.invalid/course-d-lab/quizzes"
+  enabled = true

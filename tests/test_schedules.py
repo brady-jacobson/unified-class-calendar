@@ -6,6 +6,7 @@ from pathlib import Path
 from coursework_crawler.adapters.schedules import (
     parse_cs2281_lectures,
     parse_cs3250_calendar,
+    parse_cs3265_exam_dates,
     parse_math2420_text,
     parse_math3320_schedule,
 )
@@ -83,6 +84,24 @@ class ScheduleParsingTests(unittest.TestCase):
         self.assertEqual(1, len(events))
         self.assertEqual("lecture:2", events[0].source_event_id)
         self.assertEqual("2026-08-28", events[0].starts_at.date().isoformat())
+
+    def test_cs3265_tentative_assessments_use_class_time_and_provenance(self) -> None:
+        events = parse_cs3265_exam_dates(
+            """
+            <p>All dates are tentative and finalized in class.</p>
+            <p>Exam 1: September 29</p><p>Exam 2 - October 29</p>
+            <p>Exam 3: December 3</p><p>Quiz 1: September 15</p>
+            <p>Quiz 2: October 13</p><p>Quiz 3: November 10</p>
+            """,
+            self.source("cs3265-exam-dates"),
+            self.meeting("cs3265"),
+        )
+        self.assertEqual(6, len(events))
+        by_key = {event.canonical_key: event for event in events}
+        self.assertEqual("2026-09-29", by_key["exam:1"].starts_at.date().isoformat())
+        self.assertEqual("10:00:00", by_key["exam:1"].starts_at.time().isoformat())
+        self.assertEqual("quiz", by_key["quiz:3"].event_kind)
+        self.assertIn("finalized in class", by_key["quiz:3"].raw_date_label)
 
     def test_availability_and_decimal_homework_are_not_false_conflicts(self) -> None:
         self.assertEqual(

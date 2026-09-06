@@ -32,6 +32,9 @@ def canonical_event_key(title: str, kind: str) -> str:
     numbered_patterns = (
         (r"(?:exam|test)-?(?:number|no)?-?#?-?(\d+)", "exam"),
         (r"quiz-?#?-?(\d+)", "quiz"),
+        (r"zy-?#?-?(\d+)", "due:zy"),
+        (r"lab-?#?-?(\d+)", "due:lab"),
+        (r"project-?#?-?(\d+)", "due:project"),
         (r"(?:hw|homework)-?#?-?(\d+)(?![\d.])", "due:hw"),
         (r"tips?-?#?-?(\d+)", "tips"),
     )

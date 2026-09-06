@@ -10,12 +10,14 @@ from .adapters import AdapterRegistry
 from .adapters.gradescope import GradescopeAdapter
 from .adapters.brightspace import (
     BrightspaceAssignmentsAdapter,
+    BrightspaceAnnouncementsAdapter,
     BrightspaceCalendarAdapter,
     BrightspaceContentAdapter,
     BrightspaceQuizzesAdapter,
 )
 from .adapters.webwork import WeBWorKAdapter
 from .adapters.zybooks import ZyBooksAdapter
+from .adapters.content_tree import BrightspaceContentTreeAdapter
 from .adapters.schedules import BrightspaceScheduleAdapter
 from .auth import attempt_automatic_login
 from .browser import PersistentBrowser
@@ -30,8 +32,10 @@ def default_registry(config: AppConfig | None = None) -> AdapterRegistry:
     registry.register("webwork", WeBWorKAdapter)
     registry.register("gradescope", GradescopeAdapter)
     registry.register("brightspace_assignments", BrightspaceAssignmentsAdapter)
+    registry.register("brightspace_announcements", BrightspaceAnnouncementsAdapter)
     registry.register("brightspace_quizzes", BrightspaceQuizzesAdapter)
     registry.register("brightspace_content", BrightspaceContentAdapter)
+    registry.register("brightspace_content_tree", BrightspaceContentTreeAdapter)
     registry.register("brightspace_calendar", BrightspaceCalendarAdapter)
     registry.register(
         "brightspace_schedule",
