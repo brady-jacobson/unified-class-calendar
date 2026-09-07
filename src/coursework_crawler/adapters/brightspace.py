@@ -1081,6 +1081,33 @@ class BrightspaceContentAdapter(Adapter):
         )
 
 
+def announcement_entries_from_api(payload: Any, source: SourceConfig) -> list[dict[str, Any]]:
+    """Enumerate the complete course news collection, not just its first UI page.
+
+    API contract: https://docs.valence.desire2learn.com/res/news.html
+    Publication/visibility metadata is not a coursework due date.
+    """
+    if not isinstance(payload, list):
+        raise ValueError("Expected a complete announcement array")
+    entries = []
+    seen = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError("Invalid announcement entry")
+        item_id = str(item.get("Id", ""))
+        title = item.get("Title")
+        if not item_id.isdigit() or not isinstance(title, str) or not title.strip():
+            raise ValueError("Announcement identity or title is missing")
+        if item_id in seen:
+            raise ValueError("Announcement collection repeated an identity")
+        seen.add(item_id)
+        if item.get("IsHidden") or item.get("IsPublished") is False:
+            continue
+        entries.append({"item_id": item_id, "title": title.strip(),
+                        "href": f"/d2l/le/news/{source.source_course_id}/{item_id}/view"})
+    return entries
+
+
 class BrightspaceAnnouncementsAdapter(_BrightspaceBase):
     empty_text = "There are no announcements"
     expected_heading = "Announcements"
@@ -1091,22 +1118,15 @@ class BrightspaceAnnouncementsAdapter(_BrightspaceBase):
             return loaded
         body_text, identity, timezone_name = loaded
         try:
-            entries: list[dict[str, Any]] = page.locator(
-                f'a[href*="/news/{source.source_course_id}/"][href*="/view"]'
-            ).evaluate_all(
-                r"""
-                elements => elements.map(link => {
-                  const href = link?.getAttribute('href') || '';
-                  const match = href.match(/\/news\/\d+\/(\d+)\/view/i);
-                  return {
-                    item_id: match?.[1] || '',
-                    title: (link.textContent || '').trim(),
-                    href,
-                  };
-                }).filter(entry => entry.title && entry.href)
-                """
-            )
-            entries = list({entry["href"]: entry for entry in entries}.values())
+            endpoint = urljoin(source.url, f"/d2l/api/le/1.75/{source.source_course_id}/news/")
+            response = page.context.request.get(endpoint, timeout=30_000)
+            if response.status == 401:
+                return CrawlResult(source, HealthStatus.LOGIN_REQUIRED,
+                    message="Brightspace authentication required for announcements; prior records retained.")
+            if not response.ok:
+                return CrawlResult(source, HealthStatus.UNAVAILABLE,
+                    message=f"Brightspace announcement enumeration returned HTTP {response.status}; prior records retained.")
+            entries = announcement_entries_from_api(response.json(), source)
         except Exception as exc:
             return CrawlResult(
                 source,

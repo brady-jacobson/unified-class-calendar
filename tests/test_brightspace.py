@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from coursework_crawler.adapters.brightspace import (
+    BrightspaceAnnouncementsAdapter,
+    announcement_entries_from_api,
     announcement_record_from_entry,
     assignment_record_from_row,
     calendar_record_from_ical_event,
@@ -19,12 +22,50 @@ from coursework_crawler.adapters.brightspace import (
     split_lab_obligations,
 )
 from coursework_crawler.config import load_config
+from coursework_crawler.models import HealthStatus
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class BrightspaceParsingTests(unittest.TestCase):
+    def test_announcement_enumeration_failure_never_becomes_successful_zero(self) -> None:
+        source = next(s for s in load_config(ROOT / "config/sources.example.toml").sources
+                      if s.adapter == "brightspace_announcements")
+        for status, health in ((401, HealthStatus.LOGIN_REQUIRED), (403, HealthStatus.UNAVAILABLE),
+                              (500, HealthStatus.UNAVAILABLE)):
+            with self.subTest(status=status):
+                page = Mock()
+                page.context.request.get.return_value.status = status
+                page.context.request.get.return_value.ok = False
+                adapter = BrightspaceAnnouncementsAdapter()
+                with patch.object(adapter, "_load", return_value=("", "Example", "America/Chicago")):
+                    result = adapter.crawl(page, source)
+                self.assertEqual(health, result.health)
+                self.assertEqual((), result.records)
+                page.context.request.get.assert_called_once()
+                page.goto.assert_not_called()
+
+    def test_announcement_api_enumerates_beyond_first_ui_page(self) -> None:
+        source = next(s for s in load_config(ROOT / "config/sources.example.toml").sources
+                      if s.adapter == "brightspace_announcements")
+        payload = [{"Id": 900000 + i, "Title": f"Homework {i}", "IsPublished": True,
+                    "StartDate": "2026-08-01T12:00:00Z"} for i in range(15)]
+        entries = announcement_entries_from_api(payload, source)
+        self.assertEqual(15, len(entries))
+        self.assertEqual("900014", entries[-1]["item_id"])
+        self.assertNotIn("due_at", entries[-1])
+        payload[0]["IsHidden"] = True
+        payload[1]["IsPublished"] = False
+        self.assertEqual(13, len(announcement_entries_from_api(payload, source)))
+
+    def test_announcement_api_rejects_incomplete_or_duplicate_collections(self) -> None:
+        source = next(s for s in load_config(ROOT / "config/sources.example.toml").sources
+                      if s.adapter == "brightspace_announcements")
+        for payload in ({"Items": []}, [{}], [{"Id": 900001, "Title": "A"}] * 2):
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                announcement_entries_from_api(payload, source)
+
     def test_relative_reminder_with_abbreviated_homework_identity(self) -> None:
         source = load_config(ROOT / "config/sources.example.toml").sources[0]
         record = announcement_record_from_entry(source, {
