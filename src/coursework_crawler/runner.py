@@ -18,6 +18,7 @@ from .adapters.brightspace import (
 from .adapters.webwork import WeBWorKAdapter
 from .adapters.zybooks import ZyBooksAdapter
 from .adapters.content_tree import BrightspaceContentTreeAdapter
+from .adapters.tophat import TopHatAdapter, authenticated as tophat_authenticated
 from .adapters.schedules import BrightspaceScheduleAdapter
 from .auth import attempt_automatic_login
 from .browser import PersistentBrowser
@@ -42,6 +43,7 @@ def default_registry(config: AppConfig | None = None) -> AdapterRegistry:
         lambda: BrightspaceScheduleAdapter(config.classes if config else ()),
     )
     registry.register("zybooks", ZyBooksAdapter)
+    registry.register("tophat", TopHatAdapter)
     return registry
 
 
@@ -114,6 +116,12 @@ def check_source_auth(page: Any, source: SourceConfig) -> CrawlResult:
                 and course_link.count() > 0
                 and "Sign in" not in page.title()
             )
+    elif source.platform == "tophat":
+        try:
+            page.get_by_role("navigation", name="Course View", exact=True).wait_for(timeout=20_000)
+        except Exception:
+            pass
+        authenticated = tophat_authenticated(page, source)
     elif source.platform == "zybooks":
         host = (urlsplit(page.url).hostname or "").lower()
         authenticated = (

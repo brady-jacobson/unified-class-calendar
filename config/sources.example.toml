@@ -251,6 +251,7 @@ status = "active"
   url = "https://tophat.example.invalid/course-c"
   enabled = false
   priority = "low"
+  note = "Conservative read-only monitoring; unreadable content is reported as partial coverage."
 
 [[courses]]
 id = "cs2281"
@@ -345,6 +346,7 @@ status = "active"
   url = "https://tophat.example.invalid/course-d"
   enabled = false
   priority = "low"
+  note = "Assigned metadata, slide transcripts, and readable files; no responses or attempts."
 
 [[courses]]
 id = "cs3265"
@@ -396,6 +398,15 @@ status = "active"
   module_id = "300105"
   enabled = true
   inspect_details = true
+
+  [[courses.sources]]
+  id = "cs3265-tophat"
+  adapter = "tophat"
+  platform = "tophat"
+  source_course_id = "disabled-example"
+  url = "https://tophat.example.invalid/course-e"
+  enabled = false
+  priority = "low"
 
 [[courses]]
 id = "cs2281l"

@@ -14,6 +14,7 @@ The crawler is designed around a few strict rules:
 
 - Brightspace calendar, assignment, quiz, content, and schedule adapters
 - Gradescope, WeBWorK, and zyBooks adapters
+- Conservative Top Hat monitoring of assigned metadata, slide transcripts, and readable course files
 - Interactive authentication preflight with macOS Keychain integration
 - SQLite observation and change history
 - Week, two-day, and month calendar views
@@ -81,6 +82,20 @@ Run one configured source while developing an adapter:
 ```
 
 The generated dashboard is written to `output/index.html`; crawl state and history are stored in `data/coursework.sqlite3`. Both paths are ignored.
+
+### Top Hat coverage
+
+The optional Top Hat adapter scans Assigned for Grades and nested content without
+opening questions, discussions, or submission attempts. Ordinary live participation
+does not produce separate coursework events. Slide transcripts are labeled by Top
+Hat as AI-generated, so extracted obligations remain review items; transcripts alone
+never establish exact deadlines. Readable PDF pages are scanned through the course
+viewer, including virtualized pages, with page-sequence and text-availability checks.
+
+Unreadable slides, unsupported resources, or incomplete enumeration produce a
+`partial` or failed source check rather than a successful empty result. Partial scans
+can save readable observations, but cannot remove unseen records or clear earlier
+review issues. Check these warnings before relying on coverage of a particular deck.
 
 ## Token-free macOS automation
 
