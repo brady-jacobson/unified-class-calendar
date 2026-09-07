@@ -14,6 +14,7 @@ class HealthStatus(StrEnum):
     PARSER_FAILED = "parser_failed"
     UNAVAILABLE = "unavailable"
     AMBIGUOUS = "ambiguous"
+    PARTIAL = "partial"
 
 
 @dataclass(frozen=True)

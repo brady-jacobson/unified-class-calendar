@@ -23,6 +23,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class StorageTests(unittest.TestCase):
+    def test_partial_scan_adds_observations_without_removing_unseen_records(self) -> None:
+        config = load_config(ROOT / "config/sources.example.toml")
+        source = next(s for s in config.sources if s.id == "math2420-webwork")
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Database(Path(temporary) / "test.sqlite3")
+            database.initialize()
+            database.sync_sources(config.sources)
+            def record(item_id: str) -> DeadlineRecord:
+                return DeadlineRecord(source.course_id, source.id, source.platform,
+                    source.source_course_id, item_id, item_id, "https://example.invalid/item")
+            run = database.start_run()
+            database.record_result(run, CrawlResult(source, HealthStatus.SUCCESS, (record("old"),)), 1)
+            database.record_result(run, CrawlResult(source, HealthStatus.PARTIAL, (record("new"),)), 1)
+            with database.connect() as connection:
+                rows = connection.execute("SELECT source_item_id, active, consecutive_missing FROM items ORDER BY source_item_id").fetchall()
+                self.assertEqual([("new", 1, 0), ("old", 1, 0)], [tuple(row) for row in rows])
+
     def test_source_configuration_loads_all_known_and_pending_sources(self) -> None:
         config = load_config(ROOT / "config" / "sources.example.toml")
         self.assertIn("math2420-webwork", {source.id for source in config.sources})

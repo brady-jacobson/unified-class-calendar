@@ -367,7 +367,7 @@ class Database:
                 seen_issue_keys.add(issue.issue_key)
                 self._upsert_issue(connection, issue, observed_at)
 
-            if result.health not in {HealthStatus.SUCCESS, HealthStatus.VERIFIED_ZERO}:
+            if result.health not in {HealthStatus.SUCCESS, HealthStatus.VERIFIED_ZERO, HealthStatus.PARTIAL}:
                 return
 
             seen_ids: set[str] = set()
@@ -379,6 +379,11 @@ class Database:
             for event in result.calendar_events:
                 seen_event_ids.add(event.source_event_id)
                 self._upsert_calendar_event(connection, run_id, event, observed_at)
+
+            # A partial enumeration may add verified observations, but cannot
+            # establish that an unseen item or an earlier issue disappeared.
+            if result.health == HealthStatus.PARTIAL:
+                return
 
             rows = connection.execute(
                 "SELECT id, source_item_id FROM items WHERE source_id=? AND active=1",
