@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -22,6 +24,49 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DashboardTests(unittest.TestCase):
+    def test_package_merge_keeps_components_policies_and_undated_prompt(self) -> None:
+        config = load_config(ROOT / "config/sources.example.toml")
+        written = next(s for s in config.sources if s.id == "cs3250-gradescope")
+        quiz = next(s for s in config.sources if s.id == "cs3250-brightspace-quizzes")
+        content = replace(quiz, id="example-content", adapter="brightspace_content_tree")
+        tz = ZoneInfo("America/Chicago")
+        due = datetime(2026, 9, 9, 9, tzinfo=tz)
+        base = DeadlineRecord(
+            course_id=written.course_id, source_id=written.id,
+            source_platform=written.platform, source_course_id=written.source_course_id,
+            source_item_id="900100", title="HW 1", details_url="https://example.invalid/submit",
+            due_at=due, late_due_at=datetime(2026, 9, 11, 9, tzinfo=tz),
+            component_kind="written submission", canonical_key="due:hw:1",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            db = Database(Path(temporary) / "db.sqlite3")
+            db.initialize()
+            db.sync_sources((*config.sources, content))
+            run = db.start_run()
+            for source, record in (
+                (quiz, replace(base, source_id=quiz.id, source_platform="brightspace",
+                    source_item_id="900101", title="HW1 quiz", details_url="https://example.invalid/quiz",
+                    late_due_at=None, component_kind="quiz", description="No late work accepted.")),
+                (written, base),
+                (content, replace(base, source_id=content.id, source_platform="brightspace",
+                    source_item_id="900102", title="HW1 FAQ", due_at=None, late_due_at=None,
+                    details_url="https://example.invalid/faq", component_kind="FAQ")),
+            ):
+                db.record_result(run, CrawlResult(source, HealthStatus.SUCCESS, (record,)), 3)
+            output = Path(temporary) / "index.html"
+            render_dashboard(db.path, output)
+            document = output.read_text()
+            events = json.loads(document.split("const ALL_EVENTS=", 1)[1].split(";\n", 1)[0])
+            self.assertEqual(1, len(events))
+            event = events[0]
+            self.assertEqual(base.details_url, event["url"])
+            self.assertEqual(3, len(event["provenance"]))
+            self.assertEqual({"written submission", "quiz", "FAQ"}, {
+                p["componentKind"] for p in event["provenance"]
+            })
+            self.assertTrue(any(p.get("description") == "No late work accepted." for p in event["provenance"]))
+            self.assertEqual(base.late_due_at.isoformat(), event["lateDueAt"])
+
     def test_dashboard_shows_only_explicit_future_due_dates_and_health(self) -> None:
         config = load_config(ROOT / "config" / "sources.example.toml")
         source = next(source for source in config.sources if source.id == "math2420-webwork")
