@@ -82,11 +82,7 @@ RUN_LOG=$(/usr/bin/mktemp "$DATA_DIR/current-run.XXXXXX")
 "$RUNTIME_ROOT/.venv/bin/coursework-crawler" run > >(tee -a "$DATA_DIR/crawler.log" "$RUN_LOG") 2> >(tee -a "$DATA_DIR/crawler-error.log" "$RUN_LOG" >&2)
 STATUS=$?
 
-if /usr/bin/grep -q 'login_required' "$RUN_LOG"; then
-  /usr/bin/osascript -e 'display notification "Open Terminal and run the manual authentication command." with title "Coursework sign-in required"'
-elif [[ "$STATUS" -ne 0 ]]; then
-  /usr/bin/osascript -e 'display notification "The local crawl failed. Check crawler-error.log." with title "Coursework update failed"'
-else
+if [[ "$STATUS" -eq 0 ]] && ! /usr/bin/grep -q 'login_required' "$RUN_LOG"; then
   /usr/bin/printf '%s\n' "$TODAY" > "$SUCCESS_FILE"
 fi
 

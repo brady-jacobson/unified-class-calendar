@@ -37,12 +37,14 @@ class SchedulerTests(unittest.TestCase):
         self.assertIn("8765", arguments)
         self.assertNotIn("open", " ".join(arguments))
 
-    def test_daily_runner_has_guard_force_and_login_notification(self) -> None:
+    def test_daily_runner_has_guard_and_force_without_notifications(self) -> None:
         script = daily_runner_script(Path("/tmp/coursework-crawler"))
         self.assertIn("last-run-date", script)
         self.assertIn("--force", script)
         self.assertIn("login_required", script)
-        self.assertIn("Coursework sign-in required", script)
+        self.assertNotIn("osascript", script)
+        self.assertNotIn("display notification", script)
+        self.assertIn('[[ "$STATUS" -eq 0 ]]', script)
         self.assertIn('export COURSEWORK_CRAWLER_HOME="$RUNTIME_ROOT"', script)
         self.assertIn('cd "$RUNTIME_ROOT" || exit 1', script)
 
