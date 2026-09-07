@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urljoin
 
 from ..models import CrawlResult, DeadlineRecord, HealthStatus, SourceConfig
+from ..semantics import canonical_event_key
 from .base import Adapter
 
 
@@ -45,6 +46,8 @@ def record_from_row(
         timezone=timezone_name,
         status=row.get("status") or None,
         raw_date_label=row.get("raw_date_label") or None,
+        canonical_key=canonical_event_key(row["title"], "due"),
+        component_kind="submission",
     )
 
 
@@ -140,4 +143,3 @@ class GradescopeAdapter(Adapter):
             message=message,
             course_identity=heading,
         )
-

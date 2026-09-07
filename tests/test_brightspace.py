@@ -97,6 +97,18 @@ class BrightspaceParsingTests(unittest.TestCase):
         self.assertIsNone(values["due_at"])
         self.assertEqual("2026-08-26T10:00:00-05:00", values["available_from"].isoformat())
 
+    def test_quiz_without_due_time_remains_an_untimed_obligation(self) -> None:
+        record = quiz_record_from_row(
+            self.quizzes,
+            {"item_id": "900099", "title": "HW1 quiz", "status": "0 / 1",
+             "date_text": "Available on Nov 13, 2026 10:00 AM until Dec 2, 2026 9:00 AM"},
+            "America/Chicago",
+        )
+        self.assertIsNone(record.due_at)
+        self.assertIsNotNone(record.available_until)
+        self.assertEqual("quiz", record.component_kind)
+        self.assertIn("No explicit due time", record.timing_text)
+
     def test_content_preserves_live_due_year_and_separate_availability(self) -> None:
         record = content_record_from_row(
             self.survey,

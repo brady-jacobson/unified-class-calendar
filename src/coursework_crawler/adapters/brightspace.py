@@ -607,6 +607,7 @@ def quiz_record_from_row(
         raw_date_label=" ".join(row["date_text"].split()) or None,
         canonical_key=coursework_canonical_key(title),
         component_kind="quiz",
+        timing_text=None if parsed["due_at"] else "No explicit due time published for this quiz.",
     )
 
 
@@ -862,6 +863,8 @@ class BrightspaceAssignmentsAdapter(_BrightspaceBase):
                         course_identity=identity,
                     )
                 enriched = enrich_brightspace_record(record, detail_body, links)
+                if enriched.due_at is None and not enriched.timing_text:
+                    enriched = replace(enriched, timing_text="No explicit due time published for this assignment.")
                 if source.options.get("split_relational_obligations"):
                     enriched_records.extend(split_lab_obligations(enriched, detail_body))
                 else:

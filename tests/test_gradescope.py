@@ -40,6 +40,8 @@ class GradescopeParsingTests(unittest.TestCase):
         self.assertEqual("2026-09-04T11:59:00-05:00", record.due_at.isoformat())
         self.assertEqual("2026-09-04T12:10:00-05:00", record.late_due_at.isoformat())
         self.assertNotEqual(record.due_at, record.late_due_at)
+        self.assertEqual("due:hw:1", record.canonical_key)
+        self.assertEqual("submission", record.component_kind)
         self.assertEqual(
             "https://gradescope.example.invalid/courses/200001/assignments/900001/submissions/submit_images",
             record.details_url,

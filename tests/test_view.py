@@ -25,6 +25,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class DashboardTests(unittest.TestCase):
     def test_package_merge_keeps_components_policies_and_undated_prompt(self) -> None:
+        self._assert_package_merge(quiz_has_due=True)
+
+    def test_package_merge_keeps_untimed_quiz_without_inventing_component_due(self) -> None:
+        self._assert_package_merge(quiz_has_due=False)
+
+    def _assert_package_merge(self, *, quiz_has_due: bool) -> None:
         config = load_config(ROOT / "config/sources.example.toml")
         written = next(s for s in config.sources if s.id == "cs3250-gradescope")
         quiz = next(s for s in config.sources if s.id == "cs3250-brightspace-quizzes")
@@ -46,6 +52,8 @@ class DashboardTests(unittest.TestCase):
             for source, record in (
                 (quiz, replace(base, source_id=quiz.id, source_platform="brightspace",
                     source_item_id="900101", title="HW1 quiz", details_url="https://example.invalid/quiz",
+                    due_at=due if quiz_has_due else None,
+                    timing_text=None if quiz_has_due else "No explicit due time published for this quiz.",
                     late_due_at=None, component_kind="quiz", description="No late work accepted.")),
                 (written, base),
                 (content, replace(base, source_id=content.id, source_platform="brightspace",
@@ -66,6 +74,10 @@ class DashboardTests(unittest.TestCase):
             })
             self.assertTrue(any(p.get("description") == "No late work accepted." for p in event["provenance"]))
             self.assertEqual(base.late_due_at.isoformat(), event["lateDueAt"])
+            if not quiz_has_due:
+                quiz_detail = next(p for p in event["provenance"] if p["componentKind"] == "quiz")
+                self.assertIsNone(quiz_detail.get("dueAt"))
+                self.assertEqual("resource", quiz_detail["kind"])
 
     def test_dashboard_shows_only_explicit_future_due_dates_and_health(self) -> None:
         config = load_config(ROOT / "config" / "sources.example.toml")

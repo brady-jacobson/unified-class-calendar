@@ -352,7 +352,7 @@ def render_dashboard(database_path: Path, output_path: Path) -> None:
             SELECT i.*, s.course_name, s.adapter AS source_adapter
             FROM items i JOIN sources s ON s.id=i.source_id
             WHERE i.active=1 AND i.due_at IS NULL
-              AND (i.timing_text IS NULL OR i.component_kind='announcement')
+              AND (i.timing_text IS NULL OR i.component_kind IN ('announcement', 'quiz'))
               AND i.canonical_key IS NOT NULL
             ORDER BY s.course_name, i.title
             """
@@ -409,12 +409,12 @@ def render_dashboard(database_path: Path, output_path: Path) -> None:
     codes = _course_codes(class_rows, source_rows)
     events = _class_occurrences(class_rows)
     events.extend(_coursework_events(calendar_rows, deadline_rows, resources, class_rows, codes))
-    attached_announcements = {
+    attached_resources = {
         str(item["url"])
         for event in events for item in event.get("provenance", [])
-        if item.get("componentKind") == "announcement"
+        if item.get("componentKind") in {"announcement", "quiz"} and item.get("kind") == "resource"
     }
-    unscheduled = [row for row in unscheduled if row["details_url"] not in attached_announcements]
+    unscheduled = [row for row in unscheduled if row["details_url"] not in attached_resources]
     events.sort(key=lambda event: (str(event["start"]), str(event["courseCode"]), str(event["title"])))
     payload = json.dumps(events, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
 
