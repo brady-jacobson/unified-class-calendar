@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 from collections.abc import Callable
 from typing import Any
@@ -240,6 +241,7 @@ def run_crawl(
     profile_dir: Path,
     source_ids: set[str] | None = None,
     headless: bool = True,
+    include_tophat_lectures: bool = False,
 ) -> int:
     database.initialize()
     database.sync_sources(config.sources)
@@ -247,7 +249,8 @@ def run_crawl(
     run_id = database.start_run()
     registry = default_registry(config)
     selected = tuple(
-        source for source in config.sources
+        replace(source, options={**source.options, "include_lectures": include_tophat_lectures})
+        if source.adapter == "tophat" else source for source in config.sources
         if source.enabled and (source_ids is None or source.id in source_ids)
     )
     failures = 0

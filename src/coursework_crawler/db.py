@@ -382,7 +382,7 @@ class Database:
 
             # A partial enumeration may add verified observations, but cannot
             # establish that an unseen item or an earlier issue disappeared.
-            if result.health == HealthStatus.PARTIAL:
+            if result.health == HealthStatus.PARTIAL or not result.complete_enumeration:
                 return
 
             rows = connection.execute(

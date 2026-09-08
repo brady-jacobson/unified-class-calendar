@@ -248,6 +248,16 @@ class TopHatAdapter(Adapter):
                 if record:
                     records.append(replace(record, source_item_id=row["id"]))
 
+            if not source.options.get("include_lectures", False):
+                return CrawlResult(
+                    source, HealthStatus.PARTIAL if issues else (
+                        HealthStatus.SUCCESS if records else HealthStatus.VERIFIED_ZERO),
+                    tuple(records),
+                    f"Checked {len(assigned)} Assigned-for-Grades rows. Lecture slides and files skipped; "
+                    "use --include-tophat-lectures to scan them. Prior lecture records retained.",
+                    source.course_name, issues=tuple(issues), complete_enumeration=False,
+                )
+
             page.get_by_role("button", name="All Content", exact=True).click()
             page.get_by_role("heading", name="All Content", exact=True).wait_for(timeout=15_000)
             page.get_by_role("treeitem").first.wait_for(timeout=15_000)

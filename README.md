@@ -85,7 +85,15 @@ The generated dashboard is written to `output/index.html`; crawl state and histo
 
 ### Top Hat coverage
 
-The optional Top Hat adapter scans Assigned for Grades and nested content without
+By default, the Top Hat adapter checks **Assigned for Grades only**. Lecture slides
+and files are skipped, including during scheduled updates. To scan them explicitly:
+
+```bash
+.venv/bin/coursework-crawler run --include-tophat-lectures
+```
+
+Previously collected lecture records are retained when that scan is skipped.
+The opt-in scan traverses nested content without
 opening questions, discussions, or submission attempts. Ordinary live participation
 does not produce separate coursework events. Slide transcripts are labeled by Top
 Hat as AI-generated, so extracted obligations remain review items; transcripts alone

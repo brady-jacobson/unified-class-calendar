@@ -36,6 +36,8 @@ class StorageTests(unittest.TestCase):
             run = database.start_run()
             database.record_result(run, CrawlResult(source, HealthStatus.SUCCESS, (record("old"),)), 1)
             database.record_result(run, CrawlResult(source, HealthStatus.PARTIAL, (record("new"),)), 1)
+            database.record_result(run, CrawlResult(source, HealthStatus.SUCCESS, (record("new"),),
+                                                    complete_enumeration=False), 1)
             with database.connect() as connection:
                 rows = connection.execute("SELECT source_item_id, active, consecutive_missing FROM items ORDER BY source_item_id").fetchall()
                 self.assertEqual([("new", 1, 0), ("old", 1, 0)], [tuple(row) for row in rows])

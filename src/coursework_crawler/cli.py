@@ -92,6 +92,8 @@ def main() -> None:
     run_parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
     run_parser.add_argument("--source", action="append", dest="sources")
     run_parser.add_argument("--headed", action="store_true")
+    run_parser.add_argument("--include-tophat-lectures", action="store_true",
+                            help="Also scan Top Hat lecture slides and files (slow; skipped by default).")
     schedule_parser = subparsers.add_parser("write-schedule")
     schedule_parser.add_argument("--hour", type=int, default=6)
     schedule_parser.add_argument("--minute", type=int, default=0)
@@ -134,6 +136,7 @@ def main() -> None:
             args.profile,
             set(args.sources) if args.sources else None,
             headless=run_headless(args.headed, sys.stdin.isatty()),
+            include_tophat_lectures=args.include_tophat_lectures,
         )
         render_dashboard(args.database, DEFAULT_DASHBOARD)
         raise SystemExit(exit_code)

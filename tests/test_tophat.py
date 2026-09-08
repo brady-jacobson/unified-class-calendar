@@ -1,4 +1,7 @@
 import unittest
+from dataclasses import replace
+from unittest.mock import MagicMock, patch
+from coursework_crawler.adapters.tophat import TopHatAdapter
 from coursework_crawler.adapters.tophat import folder_children, record_from_content, validate_file_pages
 from coursework_crawler.models import SourceConfig
 
@@ -6,6 +9,26 @@ from coursework_crawler.models import SourceConfig
 class TopHatTests(unittest.TestCase):
     source = SourceConfig("example-tophat", "example", "Example", "tophat", "tophat",
                           "900001", "https://example.invalid/course")
+
+    def test_lecture_navigation_requires_explicit_opt_in(self) -> None:
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled):
+                page = MagicMock()
+                page.url = self.source.url
+                def role(*args, **kwargs):
+                    if kwargs.get("name") == "All Content":
+                        raise RuntimeError("Reached opt-in lecture navigation")
+                    return MagicMock()
+                page.get_by_role.side_effect = role
+                source = replace(self.source, options={"include_lectures": True}) if enabled else self.source
+                with patch("coursework_crawler.adapters.tophat.authenticated", return_value=True), \
+                     patch("coursework_crawler.adapters.tophat.wait_for_assigned_content", return_value=False):
+                    result = TopHatAdapter().crawl(page, source)
+                reached = any(c.kwargs.get("name") == "All Content" for c in page.get_by_role.call_args_list)
+                self.assertEqual(enabled, reached)
+                if not enabled:
+                    self.assertFalse(result.complete_enumeration)
+                    self.assertIn("Lecture slides and files skipped", result.message)
 
     def test_file_page_sequence_must_be_complete(self) -> None:
         validate_file_pages({1: "Title", 2: "Required form", 3: "End"})

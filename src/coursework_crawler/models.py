@@ -109,3 +109,4 @@ class CrawlResult:
     course_identity: str | None = None
     calendar_events: tuple[CalendarEventRecord, ...] = ()
     issues: tuple[CalendarIssue, ...] = ()
+    complete_enumeration: bool = True
